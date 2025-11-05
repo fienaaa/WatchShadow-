@@ -22,8 +22,7 @@ require_once 'config/db.php';
         <div class="nav-links">
             <a href="index.php">Home</a>
             <a href="about.php">About</a>
-            <a href="subscribe.php">Subscribes</a>
-            <a href="admin/admin_login.php">Admin</a>
+            <a href="login.php">Login</a>
         </div>
         <button class="nav-toggle" id="navToggle">☰</button>
     </nav>

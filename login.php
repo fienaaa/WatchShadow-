@@ -3,10 +3,14 @@ session_start();
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-require_once '../config/db.php'; 
+require_once 'config/db.php'; 
 
-if (isset($_SESSION['admin_id'])) {
-    header('Location: admin.php');
+if (isset($_SESSION['user_id']) || isset($_SESSION['admin_id'])) {
+    if (isset($_SESSION['admin_id'])) {
+        header('Location: admin/admin.php');
+    } else {
+        header('Location: user/user.php');
+    }
     exit;
 }
 
@@ -23,26 +27,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->bind_param('s', $username);
         $stmt->execute();
         $stmt->store_result();
-        $stmt->bind_result($id, $hashed_password);
+        $stmt->bind_result($admin_id, $admin_hash);
 
         if ($stmt->num_rows > 0) {
             $stmt->fetch();
-            if (password_verify($password, $hashed_password)) {
-                $_SESSION['admin_id'] = $id;
+            if (password_verify($password, $admin_hash)) {
+                $_SESSION['admin_id'] = $admin_id;
                 $_SESSION['admin_username'] = $username;
-                header('Location: admin.php');
+                header('Location: admin/admin.php');
                 exit;
             } else {
                 $error = 'Invalid username or password.';
             }
         } else {
-            $error = 'Invalid username or password.';
+            $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE username = ?");
+            $stmt->bind_param('s', $username);
+            $stmt->execute();
+            $stmt->store_result();
+            $stmt->bind_result($user_id, $user_hash);
+
+            if ($stmt->num_rows > 0) {
+                $stmt->fetch();
+                if (password_verify($password, $user_hash)) {
+                    $_SESSION['user_id'] = $user_id;
+                    $_SESSION['username'] = $username;
+                    header('Location: user/user.php');
+                    exit;
+                } else {
+                    $error = 'Invalid username or password.';
+                }
+            } else {
+                $error = 'Invalid username or password.';
+            }
         }
         $stmt->close();
     }
 }
 
-// Helper function
 if (!function_exists('e')) {
     function e($str) {
         return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
@@ -55,8 +76,8 @@ if (!function_exists('e')) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Admin Login</title>
-    <link rel="stylesheet" href="../assets/css/style.css">
+    <title>Login</title>
+    <link rel="stylesheet" href="assets/css/style.css">
     <style>
     body {
         background: #0b0c10;
@@ -70,6 +91,7 @@ if (!function_exists('e')) {
         padding: 20px;
         background: #1f2833;
         border-radius: 10px;
+        box-shadow: 0 0 15px rgba(102, 252, 241, 0.2);
     }
 
     h2 {
@@ -78,13 +100,15 @@ if (!function_exists('e')) {
         margin-bottom: 20px;
     }
 
-    input,
-    textarea {
+    input {
         width: 100%;
         padding: 10px;
         margin: 8px 0;
         border-radius: 5px;
         border: none;
+        background: #c5c6c7;
+        color: #0b0c10;
+        font-size: 14px;
     }
 
     button {
@@ -96,6 +120,7 @@ if (!function_exists('e')) {
         border-radius: 5px;
         cursor: pointer;
         font-weight: bold;
+        font-size: 15px;
     }
 
     button:hover {
@@ -107,21 +132,41 @@ if (!function_exists('e')) {
         padding: 10px;
         border-radius: 5px;
         margin-bottom: 10px;
+        text-align: center;
+    }
+
+    .register-link {
+        text-align: center;
+        margin-top: 15px;
+    }
+
+    .register-link a {
+        color: #66fcf1;
+        text-decoration: none;
+    }
+
+    .register-link a:hover {
+        text-decoration: underline;
     }
     </style>
 </head>
 
 <body>
     <div class="container">
-        <h2>Admin Login</h2>
+        <h2>Login</h2>
         <?php if($error): ?><div class="alert error"><?= e($error) ?></div><?php endif; ?>
         <form method="post">
             <label>Username</label>
             <input type="text" name="username" required>
+
             <label>Password</label>
             <input type="password" name="password" required>
+
             <button type="submit">Login</button>
         </form>
+        <div class="register-link">
+            <p>Don't have an account? <a href="register.php">Register here</a></p>
+        </div>
     </div>
 </body>
 

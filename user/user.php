@@ -1,18 +1,19 @@
 <?php
+session_start();
 error_reporting(E_ALL);
-require_once 'config/db.php';
+ini_set('display_errors', 1);
+require_once '../config/db.php';
 
-$keyword_raw = $_GET['keyword'] ?? '';
-$keyword = trim($keyword_raw);
-
-if ($keyword === '') {
-    header('Location: index.php');
+// 🔒 Redirect if not logged in
+if (!isset($_SESSION['user_id'])) {
+    header('Location: ../login.php');
     exit;
 }
 
-/* -------------------------
-   🧠 Helper: Auto Steps Generator
-------------------------- */
+// 🧩 Use the logged-in user's username or email as keyword
+$keyword = trim($_SESSION['username'] ?? '');
+
+// 🧠 Helper function
 function generateResponseSteps($fields) {
     $steps = [];
     $fieldsLower = strtolower($fields);
@@ -39,9 +40,7 @@ function generateResponseSteps($fields) {
     }
 
     $output = "<ul>";
-    foreach ($steps as $s) {
-        $output .= "<li>" . htmlspecialchars($s) . "</li>";
-    }
+    foreach ($steps as $s) $output .= "<li>" . htmlspecialchars($s) . "</li>";
     $output .= "</ul>";
     return $output;
 }
@@ -54,13 +53,6 @@ $stmt->bind_param('s', $keyword);
 $stmt->execute();
 $res = $stmt->get_result();
 $found = $res->num_rows > 0;
-
-// Log search
-$log_stmt = $mysqli->prepare("INSERT INTO search_logs (keyword, found) VALUES (?, ?)");
-$found_int = $found ? 1 : 0;
-$log_stmt->bind_param('si', $keyword, $found_int);
-$log_stmt->execute();
-$log_stmt->close();
 
 /* -------------------------
    2️⃣ AHMIA DARK WEB SEARCH
@@ -81,26 +73,10 @@ if ($ahmia_response !== false) {
         /** @var DOMElement $link */
         $href = $link->getAttribute('href');
         $title = trim($link->textContent);
-
-        $parent = $link->parentNode;
-        if ($parent instanceof DOMElement) {
-            $spans = $parent->getElementsByTagName('span');
-            foreach ($spans as $span) {
-                if (trim($span->textContent) !== '') {
-                    $title = trim($span->textContent);
-                    break;
-                }
-            }
-        }
-
         if ($title === '' || stripos($title, '.onion') !== false) {
             $title = "Unnamed .onion site";
         }
-
-        $ahmia_results[] = [
-            'title' => $title,
-            'link' => $href
-        ];
+        $ahmia_results[] = ['title' => $title, 'link' => $href];
     }
 }
 
@@ -113,7 +89,6 @@ $breach_response = @file_get_contents($breach_url);
 
 if ($breach_response !== false) {
     $breachData = json_decode($breach_response, true);
-
     if (isset($breachData['success']) && $breachData['success'] === true && !empty($breachData['result'])) {
         foreach ($breachData['result'] as $r) {
             $breach_results[] = [
@@ -130,15 +105,12 @@ if ($breach_response !== false) {
 
 <head>
     <meta charset="UTF-8">
-    <title>Breach Results - <?= htmlspecialchars($keyword) ?></title>
+    <title>User Dashboard - Dark Web Monitor</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/style.css">
-
-
     <style>
     body {
         background-color: #0b0c10;
-        color: #ffffff;
+        color: #fff;
         font-family: 'Poppins', sans-serif;
     }
 
@@ -147,19 +119,18 @@ if ($breach_response !== false) {
         background: #1f2833;
         padding: 30px;
         border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     }
 
     h2 {
         color: #66fcf1;
         text-align: center;
-        margin-bottom: 30px;
+        margin-bottom: 20px;
     }
 
     table {
         width: 100%;
         border-collapse: collapse;
-        margin-bottom: 30px;
+        margin-bottom: 25px;
     }
 
     th {
@@ -176,71 +147,50 @@ if ($breach_response !== false) {
 
     .alert {
         background: #16202a;
-        color: #fff;
         border-left: 4px solid #45a29e;
         padding: 10px;
         border-radius: 8px;
     }
 
-    .search-form {
-        text-align: center;
-        margin-top: 15px;
-        margin-bottom: 25px;
+    nav {
+        background: #1f2833;
+        padding: 10px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
 
-    .search-input {
-        width: 60%;
-        max-width: 400px;
-        border-radius: 6px;
-        border: none;
-        padding: 8px 10px;
+    nav a {
+        color: #66fcf1;
+        margin: 0 10px;
+        text-decoration: none;
     }
 
-    .search-btn {
-        background-color: #45a29e;
-        color: #0b0c10;
-        border: none;
-        padding: 8px 15px;
-        border-radius: 6px;
-        margin-left: 8px;
+    nav a:hover {
+        text-decoration: underline;
     }
     </style>
 </head>
 
 <body>
-    <!-- 🔹 Navigation Bar -->
-    <nav class="topnav">
-        <div class="brand">
-            <!-- <img src="assets/img/logo.png" alt="logo" style="height:36px;vertical-align:middle;"> -->
-            <span>Dark Web Monitor</span>
+    <nav>
+        <div><strong>Dark Web Monitor</strong></div>
+        <div>
+            <a href="user.php">Home</a>
+            <a href="profile.php">Profile</a>
+            <a href="logout.php">Logout</a>
         </div>
-        <div class="nav-links">
-            <a href="index.php">Home</a>
-            <a href="about.php">About</a>
-            <a href="subscribe.php">Subscribes</a>
-            <a href="login.php">Login</a>
-        </div>
-        <button class="nav-toggle" id="navToggle">☰</button>
     </nav>
 
-    <!-- 🔍 Search Again -->
-    <div class="search-form">
-        <form action="result.php" method="get">
-            <input type="text" name="keyword" class="search-input" placeholder="Search another email..." required>
-            <button type="submit" class="search-btn">Search</button>
-        </form>
-    </div>
-
     <div class="container">
-        <h2>Search Results for “<?= htmlspecialchars($keyword) ?>”</h2>
+        <h2>Dark Web Report for <?= htmlspecialchars($keyword) ?></h2>
 
-        <!-- 🧩 Local Database -->
         <h4>Local Database</h4>
         <table>
             <thead>
                 <tr>
                     <th>Information</th>
-                    <th>Steps to Reproduce</th>
+                    <th>Steps</th>
                 </tr>
             </thead>
             <tbody>
@@ -262,23 +212,20 @@ if ($breach_response !== false) {
             </tbody>
         </table>
 
-        <!-- 🌑 Ahmia -->
         <h4>Ahmia Dark Web Search</h4>
         <table>
             <thead>
                 <tr>
                     <th>Result</th>
-                    <th>Steps to Reproduce</th>
+                    <th>Steps</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (!empty($ahmia_results)): foreach ($ahmia_results as $r): ?>
                 <tr>
-                    <td>
-                        <a href="<?= htmlspecialchars($r['link']) ?>" target="_blank">
-                            🕵️ <?= htmlspecialchars($r['title']) ?>
-                        </a><br>
-                        <small>🔗 <?= htmlspecialchars($r['link']) ?><br>⚠️ Requires Tor Browser.</small>
+                    <td><a href="<?= htmlspecialchars($r['link']) ?>" target="_blank">🕵️
+                            <?= htmlspecialchars($r['title']) ?></a><br>
+                        <small>🔗 <?= htmlspecialchars($r['link']) ?></small>
                     </td>
                     <td><?= generateResponseSteps($r['title']) ?></td>
                 </tr>
@@ -290,13 +237,12 @@ if ($breach_response !== false) {
             </tbody>
         </table>
 
-        <!-- 🌐 BreachDirectory -->
         <h4>BreachDirectory API</h4>
         <table>
             <thead>
                 <tr>
                     <th>Leaked Info</th>
-                    <th>Steps to Reproduce</th>
+                    <th>Steps</th>
                 </tr>
             </thead>
             <tbody>
@@ -317,7 +263,6 @@ if ($breach_response !== false) {
             </tbody>
         </table>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 
 </html>

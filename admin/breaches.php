@@ -172,7 +172,7 @@ if (!function_exists('e')) {
     <div class="sidebar">
         <a href="admin.php">Home</a>
         <a href="breaches.php" class="active">Breaches List</a>
-        <a href="subscribers.php">Subscribers List</a>
+        <a href="users.php">Users List</a>
         <a href="admin_logout.php">Logout</a>
     </div>
 

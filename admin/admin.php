@@ -1,33 +1,41 @@
 <?php
 session_start();
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 require_once '../config/db.php';
-if(!isset($_SESSION['admin_id'])) header('Location: admin_login.php');
 
-$breaches_count = $mysqli->query("SELECT COUNT(*) as c FROM breaches")->fetch_assoc()['c'];
-$subscribers_count = $mysqli->query("SELECT COUNT(*) as c FROM subscribers")->fetch_assoc()['c'];
+if (!isset($_SESSION['admin_id'])) {
+    header('Location: admin_login.php');
+    exit;
+}
 
-$matched_subscribers_count = $mysqli->query("
-    SELECT COUNT(DISTINCT s.id) AS c
-    FROM subscribers s
-    JOIN breaches b ON b.keyword LIKE CONCAT('%', s.keyword, '%')
-")->fetch_assoc()['c'];
+// --- Dashboard Counts ---
+$breaches_count = $mysqli->query("SELECT COUNT(*) AS c FROM breaches")->fetch_assoc()['c'] ?? 0;
+$users_count = $mysqli->query("SELECT COUNT(*) AS c FROM users")->fetch_assoc()['c'] ?? 0;
 
+// Count users with breach data (from local breaches table)
+$matched_users_count = $mysqli->query("
+    SELECT COUNT(DISTINCT u.id) AS c
+    FROM users u
+    JOIN breaches b ON b.keyword LIKE CONCAT('%', u.email, '%')
+")->fetch_assoc()['c'] ?? 0;
+
+// --- Chart Data (Users vs Breaches) ---
 $chart_query = $mysqli->query("
-    SELECT s.keyword, COUNT(b.id) AS breaches_count
-    FROM subscribers s
-    LEFT JOIN breaches b ON b.keyword LIKE CONCAT('%', s.keyword, '%')
-    GROUP BY s.id
+    SELECT u.email AS keyword, COUNT(b.id) AS breaches_count
+    FROM users u
+    LEFT JOIN breaches b ON b.keyword LIKE CONCAT('%', u.email, '%')
+    GROUP BY u.id
 ");
+
 $chart_labels = [];
 $chart_data = [];
-while($row = $chart_query->fetch_assoc()) {
+while ($row = $chart_query->fetch_assoc()) {
     $chart_labels[] = $row['keyword'];
     $chart_data[] = (int)$row['breaches_count'];
 }
 
-if (!function_exists('e')) {
-    function e($str) { return htmlspecialchars($str, ENT_QUOTES, 'UTF-8'); }
-}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -62,7 +70,8 @@ if (!function_exists('e')) {
         margin-bottom: 5px;
     }
 
-    .sidebar a:hover {
+    .sidebar a:hover,
+    .sidebar a.active {
         background: #45a29e;
         color: #0b0c10;
         border-radius: 5px;
@@ -128,9 +137,9 @@ if (!function_exists('e')) {
 <body>
 
     <div class="sidebar">
-        <a href="index.php">Home</a>
+        <a href="admin.php" class="active">Home</a>
         <a href="breaches.php">Breaches List</a>
-        <a href="subscribers.php">Subscribers List</a>
+        <a href="users.php">Users List</a>
         <a href="admin_logout.php">Logout</a>
     </div>
 
@@ -143,57 +152,64 @@ if (!function_exists('e')) {
                 <p><?= $breaches_count ?></p>
             </div>
             <div class="card">
-                <h3>Total Subscribers</h3>
-                <p><?= $subscribers_count ?></p>
+                <h3>Total Users</h3>
+                <p><?= $users_count ?></p>
             </div>
             <div class="card">
-                <h3>Subscribers with Breaches</h3>
-                <p><?= $matched_subscribers_count ?></p>
+                <h3>Users with Breach Data</h3>
+                <p><?= $matched_users_count ?></p>
             </div>
         </div>
 
         <div class="card">
-            <h3>Subscribers vs Breaches</h3>
-            <canvas id="subBreachChart" height="150"></canvas>
+            <h3>Users vs Breaches Chart</h3>
+            <canvas id="userBreachChart" height="150"></canvas>
         </div>
 
+        <?php
+        // Fetch breach list for dropdown
+        $breach_list = $mysqli->query("SELECT * FROM breaches ORDER BY created_at DESC");
+        ?>
         <div class="card">
-            <h3>Send Manual Notification</h3>
-            <form method="post" action="send_notify.php">
-                <label>Keyword</label>
-                <input name="notify_keyword" placeholder="example.com or keyword" required>
-                <label>Email Subject</label>
-                <input name="subject" value="Alert: possible leak match" required>
-                <label>Email Body</label>
-                <textarea name="body">We detected your monitored keyword in a new breach. Please take action.</textarea>
-                <button type="submit">Send</button>
+            <h3>Add New Breach</h3>
+            <form method="post" action="add_breach.php" id="addBreachForm">
+                <label for="keyword">Email / Keyword</label>
+                <input type="text" name="keyword" id="keyword" placeholder="e.g. user@example.com" required>
+
+                <label for="source">Source / Leak Site</label>
+                <input type="text" name="source" id="source" placeholder="e.g. ExampleLeakSite1" required>
+
+                <?php $today = date('Y-m-d'); ?>
+                <label for="leak_date">Leak Date</label>
+                <input type="date" name="leak_date" id="leak_date" value="<?= $today ?>" required>
+
+                <label for="description">Description</label>
+                <textarea name="description" id="description" rows="4"
+                    placeholder="Brief description of the leak (what was exposed)"></textarea>
+
+                <div style="margin-top:12px;">
+                    <button type="submit" class="btn">Add Breach</button>
+                    <button type="reset" class="btn"
+                        style="background:#6b7280;color:#fff;margin-left:8px;">Reset</button>
+                </div>
             </form>
         </div>
     </div>
 
     <script>
-    const ctx = document.getElementById('subBreachChart').getContext('2d');
-    const subBreachChart = new Chart(ctx, {
+    const ctx = document.getElementById('userBreachChart').getContext('2d');
+    const userBreachChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: <?= json_encode($chart_labels) ?>,
             datasets: [{
-                    label: 'Breaches per Subscriber',
-                    data: <?= json_encode($chart_data) ?>,
-                    borderColor: '#45a29e',
-                    backgroundColor: 'rgba(69, 162, 158, 0.2)',
-                    fill: true,
-                    tension: 0.3
-                },
-                {
-                    label: 'Subscriber Exists (1=Yes,0=No)',
-                    data: <?= json_encode(array_map(fn($x)=>$x>0?1:0, $chart_data)) ?>,
-                    borderColor: '#66fcf1',
-                    backgroundColor: 'rgba(102, 252, 241, 0.2)',
-                    fill: true,
-                    tension: 0.3
-                }
-            ]
+                label: 'Breaches per User',
+                data: <?= json_encode($chart_data) ?>,
+                borderColor: '#45a29e',
+                backgroundColor: 'rgba(69, 162, 158, 0.2)',
+                fill: true,
+                tension: 0.3
+            }]
         },
         options: {
             responsive: true,
